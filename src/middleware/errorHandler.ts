@@ -7,9 +7,9 @@ export interface AppError extends Error {
 
 export const errorHandler = (
   error: AppError,
-  req: Request,
+  _req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void => {
   const statusCode = error.statusCode || 500;
   const message = error.message || "Internal Server Error";

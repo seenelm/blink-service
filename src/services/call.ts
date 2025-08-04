@@ -1,171 +1,167 @@
-import { supabaseAdmin } from "../config/supabase";
+import { supabase } from "../config/supabase";
 
-interface CallSession {
-  userId1: string;
-  userId2: string;
-  startTime: Date;
-  likes: Set<string>;
-  dislikes: Set<string>;
+interface LikeResult {
+  mutual: boolean;
+  contactInfo?: any;
 }
 
-interface ContactInfo {
-  user: {
-    id: string;
-    name: string;
-    email: string;
-  };
-  profile: {
-    phone_number?: string;
-    instagram_handle?: string;
-    tiktok_handle?: string;
-    twitter_handle?: string;
-    linkedin_url?: string;
-  };
+interface CallSession {
+  user1Id: string;
+  user2Id: string;
+  startTime: Date;
+  endTime?: Date;
 }
 
 export class CallService {
   private activeCalls: Map<string, CallSession> = new Map();
 
-  async startCall(userId1: string, userId2: string): Promise<void> {
-    const callKey = this.getCallKey(userId1, userId2);
-
-    this.activeCalls.set(callKey, {
-      userId1,
-      userId2,
+  async startCall(user1Id: string, user2Id: string): Promise<void> {
+    const callId = this.getCallId(user1Id, user2Id);
+    this.activeCalls.set(callId, {
+      user1Id,
+      user2Id,
       startTime: new Date(),
-      likes: new Set(),
-      dislikes: new Set(),
     });
 
-    console.log(`Call started between ${userId1} and ${userId2}`);
+    console.log(`Call started: ${user1Id} <-> ${user2Id}`);
   }
 
-  async handleLike(
-    userId: string,
-    partnerId: string
-  ): Promise<{ mutual: boolean }> {
-    const callKey = this.getCallKey(userId, partnerId);
-    const call = this.activeCalls.get(callKey);
+  async endCall(user1Id: string, user2Id: string): Promise<void> {
+    const callId = this.getCallId(user1Id, user2Id);
+    const call = this.activeCalls.get(callId);
+    if (call) {
+      call.endTime = new Date();
+      console.log(`Call ended: ${user1Id} <-> ${user2Id}`);
+    }
+  }
+
+  async handleLike(userId: string, partnerId: string): Promise<LikeResult> {
+    const callId = this.getCallId(userId, partnerId);
+    const call = this.activeCalls.get(callId);
 
     if (!call) {
       throw new Error("No active call found");
     }
 
-    call.likes.add(userId);
+    // Check if partner also liked this user
+    const partnerCallId = this.getCallId(partnerId, userId);
+    const partnerCall = this.activeCalls.get(partnerCallId);
 
-    // Check if both users liked each other
-    const mutual = call.likes.has(call.userId1) && call.likes.has(call.userId2);
-
-    if (mutual) {
-      console.log(`Mutual like detected between ${userId} and ${partnerId}`);
+    if (partnerCall) {
+      // Both users liked each other
+      const contactInfo = await this.shareContactInfo(userId, partnerId);
+      return { mutual: true, contactInfo };
     }
 
-    return { mutual };
+    return { mutual: false };
   }
 
   async handleDislike(userId: string, partnerId: string): Promise<void> {
-    const callKey = this.getCallKey(userId, partnerId);
-    const call = this.activeCalls.get(callKey);
+    const callId = this.getCallId(userId, partnerId);
+    this.activeCalls.delete(callId);
 
-    if (!call) {
-      throw new Error("No active call found");
-    }
-
-    call.dislikes.add(userId);
     console.log(`User ${userId} disliked ${partnerId}`);
   }
 
-  async shareContactInfo(
-    userId1: string,
-    userId2: string
-  ): Promise<ContactInfo[]> {
-    // Get both users' contact information
-    const [user1Info, user2Info] = await Promise.all([
-      this.getUserContactInfo(userId1),
-      this.getUserContactInfo(userId2),
-    ]);
+  async shareContactInfo(userId: string, partnerId: string): Promise<any> {
+    try {
+      // Get user profiles
+      const { data: user, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", userId)
+        .single();
 
-    // Create contact records for both users
-    await Promise.all([
-      this.createContactRecord(userId1, userId2, user2Info),
-      this.createContactRecord(userId2, userId1, user1Info),
-    ]);
+      if (userError) throw userError;
 
-    return [user1Info, user2Info];
-  }
+      const { data: partner, error: partnerError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", partnerId)
+        .single();
 
-  private async getUserContactInfo(userId: string): Promise<ContactInfo> {
-    const { data: user, error: userError } = await supabaseAdmin
-      .from("users")
-      .select("id, name, email")
-      .eq("id", userId)
-      .single();
+      if (partnerError) throw partnerError;
 
-    if (userError || !user) {
-      throw new Error("User not found");
-    }
+      // Get user profiles with contact info
+      const { data: userProfile, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
 
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from("user_profiles")
-      .select(
-        "phone_number, instagram_handle, tiktok_handle, twitter_handle, linkedin_url"
-      )
-      .eq("user_id", userId)
-      .single();
-
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      },
-      profile: profile || {},
-    };
-  }
-
-  private async createContactRecord(
-    userId: string,
-    contactUserId: string,
-    contactInfo: ContactInfo
-  ): Promise<void> {
-    const { error } = await supabaseAdmin.from("user_contacts").upsert(
-      {
-        user_id: userId,
-        contact_user_id: contactUserId,
-        contact_name: contactInfo.user.name,
-        phone_number: contactInfo.profile.phone_number,
-        instagram_handle: contactInfo.profile.instagram_handle,
-        tiktok_handle: contactInfo.profile.tiktok_handle,
-        twitter_handle: contactInfo.profile.twitter_handle,
-        linkedin_url: contactInfo.profile.linkedin_url,
-        matched_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "user_id,contact_user_id",
+      if (profileError && profileError.code !== "PGRST116") {
+        throw profileError;
       }
-    );
 
-    if (error) {
-      console.error("Error creating contact record:", error);
-      throw new Error("Failed to create contact record");
+      const { data: partnerProfile, error: partnerProfileError } =
+        await supabase
+          .from("user_profiles")
+          .select("*")
+          .eq("user_id", partnerId)
+          .single();
+
+      if (partnerProfileError && partnerProfileError.code !== "PGRST116") {
+        throw partnerProfileError;
+      }
+
+      // Create contact records for both users
+      const contactData = {
+        user_id: userId,
+        contact_user_id: partnerId,
+        contact_name: partner.name,
+        phone_number: partnerProfile?.phone_number,
+        instagram_handle: partnerProfile?.instagram_handle,
+        tiktok_handle: partnerProfile?.tiktok_handle,
+        twitter_handle: partnerProfile?.twitter_handle,
+        linkedin_url: partnerProfile?.linkedin_url,
+        matched_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("user_contacts")
+        .upsert(contactData);
+      if (error) throw error;
+
+      // Create reverse contact record
+      const reverseContactData = {
+        user_id: partnerId,
+        contact_user_id: userId,
+        contact_name: user.name,
+        phone_number: userProfile?.phone_number,
+        instagram_handle: userProfile?.instagram_handle,
+        tiktok_handle: userProfile?.tiktok_handle,
+        twitter_handle: userProfile?.twitter_handle,
+        linkedin_url: userProfile?.linkedin_url,
+        matched_at: new Date().toISOString(),
+      };
+
+      const { error: reverseError } = await supabase
+        .from("user_contacts")
+        .upsert(reverseContactData);
+      if (reverseError) throw reverseError;
+
+      console.log(`Contact info shared between ${userId} and ${partnerId}`);
+
+      return {
+        partnerName: partner.name,
+        partnerEmail: partner.email,
+        contactInfo: {
+          phoneNumber: partnerProfile?.phone_number,
+          instagramHandle: partnerProfile?.instagram_handle,
+          tiktokHandle: partnerProfile?.tiktok_handle,
+          twitterHandle: partnerProfile?.twitter_handle,
+          linkedinUrl: partnerProfile?.linkedin_url,
+        },
+      };
+    } catch (error) {
+      console.error("Error sharing contact info:", error);
+      throw error;
     }
   }
 
-  async endCall(userId: string, partnerId: string): Promise<void> {
-    const callKey = this.getCallKey(userId, partnerId);
-    this.activeCalls.delete(callKey);
-    console.log(`Call ended between ${userId} and ${partnerId}`);
-  }
-
-  private getCallKey(userId1: string, userId2: string): string {
-    // Ensure consistent ordering for call key
-    const sortedIds = [userId1, userId2].sort();
+  private getCallId(user1Id: string, user2Id: string): string {
+    // Create a consistent call ID regardless of user order
+    const sortedIds = [user1Id, user2Id].sort();
     return `${sortedIds[0]}-${sortedIds[1]}`;
-  }
-
-  async getActiveCallStats(): Promise<{ count: number }> {
-    return {
-      count: this.activeCalls.size,
-    };
   }
 }

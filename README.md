@@ -1,236 +1,372 @@
 # Blink Service
 
-Backend service for the Blink dating app featuring WebRTC signaling, real-time matchmaking, and contact sharing.
+Backend service for the Blink dating app, providing real-time video chat functionality with WebRTC signaling and intelligent matchmaking.
 
 ## Features
 
-- **WebRTC Signaling**: Handle offer/answer exchange for peer-to-peer video calls
-- **Real-time Matchmaking**: Find and pair users for video chat sessions
-- **Contact Sharing**: Exchange contact information when both users like each other
-- **Authentication**: JWT-based authentication with Supabase
-- **Rate Limiting**: Protect against abuse and ensure fair usage
+- **Real-time Communication**: WebSocket-based real-time messaging
+- **Video Chat**: WebRTC signaling for peer-to-peer video calls
+- **Matchmaking**: Intelligent user matching algorithm
+- **Authentication**: Supabase Auth integration
+- **Scalable**: Built for high-performance and scalability
+- **Secure**: Rate limiting, CORS, and security headers
 
 ## Tech Stack
 
-- **Runtime**: Node.js with TypeScript
-- **Web Framework**: Express.js
-- **Real-time**: Socket.IO
+- **Runtime**: Node.js
+- **Framework**: Express.js
+- **Real-time**: WebSocket (ws)
 - **Database**: Supabase (PostgreSQL)
 - **Authentication**: Supabase Auth
-- **WebRTC**: STUN servers for NAT traversal
+- **Language**: TypeScript
 
-## Setup
+## Quick Start
 
-### Prerequisites
+1. **Install dependencies**:
 
-- Node.js 18+
-- Supabase project with configured database
+   ```bash
+   npm install
+   ```
 
-### Installation
+2. **Set up environment variables**:
 
-1. Clone the repository and navigate to the service directory:
+   ```bash
+   cp env.example .env
+   # Edit .env with your Supabase credentials
+   ```
 
-```bash
-cd blink-service
-```
+3. **Start development server**:
 
-2. Install dependencies:
+   ```bash
+   npm run dev
+   ```
 
-```bash
-npm install
-```
+4. **Build for production**:
+   ```bash
+   npm run build
+   npm start
+   ```
 
-3. Copy environment template and configure:
+## Environment Variables
 
-```bash
-cp env.example .env
-```
-
-4. Update `.env` with your Supabase credentials:
+Create a `.env` file with the following variables:
 
 ```env
-SUPABASE_URL=your_supabase_project_url
+# Server Configuration
+PORT=3001
+NODE_ENV=development
+
+# Supabase Configuration
+SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-```
 
-### Database Setup
+# CORS Configuration
+CORS_ORIGIN=http://localhost:3000,http://localhost:3001
 
-Run the following SQL in your Supabase SQL editor:
+# Rate Limiting
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX_REQUESTS=100
 
-```sql
--- Users table (extends Supabase auth.users)
-CREATE TABLE users (
-  id UUID PRIMARY KEY REFERENCES auth.users(id),
-  name VARCHAR(255) NOT NULL,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  is_active BOOLEAN DEFAULT false,
-  last_active_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- User profiles with contact information
-CREATE TABLE user_profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
-  phone_number VARCHAR(20),
-  instagram_handle VARCHAR(100),
-  tiktok_handle VARCHAR(100),
-  twitter_handle VARCHAR(100),
-  linkedin_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- User contacts (shared contact information)
-CREATE TABLE user_contacts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  contact_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  contact_name VARCHAR(255),
-  phone_number VARCHAR(20),
-  instagram_handle VARCHAR(100),
-  tiktok_handle VARCHAR(100),
-  twitter_handle VARCHAR(100),
-  linkedin_url TEXT,
-  matched_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, contact_user_id)
-);
-
--- Row Level Security policies
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_contacts ENABLE ROW LEVEL SECURITY;
-
--- Users can only see their own data
-CREATE POLICY "Users can view own data" ON users
-  FOR SELECT USING (auth.uid() = id);
-
-CREATE POLICY "Users can update own data" ON users
-  FOR UPDATE USING (auth.uid() = id);
-
--- User profiles policies
-CREATE POLICY "Users can view own profile" ON user_profiles
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own profile" ON user_profiles
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own profile" ON user_profiles
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
--- User contacts policies
-CREATE POLICY "Users can view own contacts" ON user_contacts
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own contacts" ON user_contacts
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-```
-
-### Development
-
-Start the development server:
-
-```bash
-npm run dev
-```
-
-The server will run on `http://localhost:3001`
-
-### Production
-
-Build and start:
-
-```bash
-npm run build
-npm start
+# WebRTC Configuration
+STUN_SERVER_1=stun:stun.l.google.com:19302
+STUN_SERVER_2=stun:stun1.l.google.com:19302
 ```
 
 ## API Endpoints
 
 ### Health Check
 
-```
-GET /health
-```
+- `GET /health` - Server health status
 
-### WebRTC Configuration
+### Debug Endpoints
 
-```
-GET /api/webrtc-config
-Authorization: Bearer <jwt_token>
-```
+- `GET /debug/waiting-room` - Current waiting room statistics
+- `GET /debug/websocket-stats` - WebSocket connection statistics
 
-Returns STUN server configuration for WebRTC.
+### Protected Endpoints
 
-## Socket.IO Events
+- `GET /api/webrtc-config` - WebRTC ICE server configuration
+
+## WebSocket Events
 
 ### Client to Server
 
-- `user:join` - Join waiting room for matchmaking
-- `webrtc:offer` - Send WebRTC offer to partner
-- `webrtc:answer` - Send WebRTC answer to partner
-- `webrtc:ice-candidate` - Send ICE candidate to partner
-- `call:like` - Express interest in partner
-- `call:dislike` - Decline partner
-- `call:end` - End call prematurely
+#### Authentication
+
+All WebSocket connections require a valid JWT token from Supabase Auth:
+
+```javascript
+// Connect with authentication
+const ws = new WebSocket("ws://localhost:3001");
+ws.onopen = () => {
+  // Send authentication header
+  ws.send(
+    JSON.stringify({
+      type: "auth",
+      token: "your_supabase_jwt_token",
+    })
+  );
+};
+```
+
+#### Join Waiting Room
+
+```javascript
+ws.send(
+  JSON.stringify({
+    type: "user:join",
+  })
+);
+```
+
+#### Call Actions
+
+```javascript
+// Like partner
+ws.send(
+  JSON.stringify({
+    type: "call:like",
+    partnerId: "partner_user_id",
+  })
+);
+
+// Dislike partner
+ws.send(
+  JSON.stringify({
+    type: "call:dislike",
+    partnerId: "partner_user_id",
+  })
+);
+
+// End call
+ws.send(
+  JSON.stringify({
+    type: "call:end",
+  })
+);
+```
+
+#### WebRTC Signaling
+
+```javascript
+// Send offer
+ws.send(
+  JSON.stringify({
+    type: "webrtc:offer",
+    targetId: "partner_user_id",
+    offer: rtcOffer,
+  })
+);
+
+// Send answer
+ws.send(
+  JSON.stringify({
+    type: "webrtc:answer",
+    targetId: "partner_user_id",
+    answer: rtcAnswer,
+  })
+);
+
+// Send ICE candidate
+ws.send(
+  JSON.stringify({
+    type: "webrtc:ice-candidate",
+    targetId: "partner_user_id",
+    candidate: iceCandidate,
+  })
+);
+```
 
 ### Server to Client
 
-- `match:found` - Notify users of successful match
-- `webrtc:offer` - Receive WebRTC offer from partner
-- `webrtc:answer` - Receive WebRTC answer from partner
-- `webrtc:ice-candidate` - Receive ICE candidate from partner
-- `contact:shared` - Notify of mutual like and contact sharing
-- `call:end` - Notify of call ending
-
-## Authentication
-
-All Socket.IO connections require a valid JWT token from Supabase Auth:
+#### Connection Events
 
 ```javascript
-const socket = io("http://localhost:3001", {
-  auth: {
-    token: "your_supabase_jwt_token",
-  },
-});
+// Connection established
+{
+  type: 'connection:established',
+  socketId: 'socket_id',
+  userId: 'user_id'
+}
+
+// Waiting room joined
+{
+  type: 'waiting:joined',
+  message: 'Waiting for a match...'
+}
 ```
 
-## Environment Variables
+#### Match Events
 
-| Variable                    | Description               | Default                         |
-| --------------------------- | ------------------------- | ------------------------------- |
-| `PORT`                      | Server port               | 3001                            |
-| `SUPABASE_URL`              | Supabase project URL      | Required                        |
-| `SUPABASE_ANON_KEY`         | Supabase anonymous key    | Required                        |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | Required                        |
-| `STUN_SERVER_1`             | Primary STUN server       | `stun:stun.l.google.com:19302`  |
-| `STUN_SERVER_2`             | Secondary STUN server     | `stun:stun1.l.google.com:19302` |
-| `RATE_LIMIT_WINDOW_MS`      | Rate limit window         | 900000 (15 min)                 |
-| `RATE_LIMIT_MAX_REQUESTS`   | Max requests per window   | 100                             |
-| `CORS_ORIGIN`               | Allowed CORS origins      | `http://localhost:3000`         |
+```javascript
+// Match found
+{
+  type: 'match:found',
+  partnerId: 'partner_user_id',
+  partnerSocketId: 'partner_socket_id'
+}
+```
 
-## Testing
+#### Call Events
 
-Run tests:
+```javascript
+// Call ended
+{
+  type: 'call:ended',
+  message: 'Call ended successfully'
+}
+
+// Contact shared (mutual like)
+{
+  type: 'contact:shared',
+  data: {
+    id: 'contact_id',
+    name: 'Partner Name',
+    email: 'partner@email.com',
+    // ... other contact info
+  }
+}
+```
+
+#### WebRTC Events
+
+```javascript
+// Receive offer
+{
+  type: 'webrtc:offer',
+  offer: rtcOffer,
+  fromId: 'sender_user_id'
+}
+
+// Receive answer
+{
+  type: 'webrtc:answer',
+  answer: rtcAnswer,
+  fromId: 'sender_user_id'
+}
+
+// Receive ICE candidate
+{
+  type: 'webrtc:ice-candidate',
+  candidate: iceCandidate,
+  fromId: 'sender_user_id'
+}
+```
+
+#### Error Events
+
+```javascript
+{
+  type: 'error',
+  message: 'Error description'
+}
+```
+
+## Architecture
+
+### WebSocket Manager
+
+The `WebSocketManager` class handles all real-time communication:
+
+- **Connection Management**: Authenticates and manages WebSocket connections
+- **Message Routing**: Routes messages to appropriate handlers
+- **Heartbeat**: Maintains connection health with ping/pong
+- **Cleanup**: Automatically removes stale connections
+
+### Matchmaking Service
+
+The `MatchmakingService` manages user matching:
+
+- **Waiting Room**: Tracks users waiting for matches
+- **Matching Algorithm**: Pairs compatible users
+- **Session Management**: Manages active call sessions
+
+### Call Service
+
+The `CallService` handles call-related operations:
+
+- **Like/Dislike**: Processes user preferences
+- **Contact Sharing**: Manages mutual like scenarios
+- **Call Sessions**: Tracks active video calls
+
+## Development
+
+### Scripts
+
+- `npm run dev` - Start development server with hot reload
+- `npm run build` - Build TypeScript to JavaScript
+- `npm start` - Start production server
+- `npm test` - Run tests
+- `npm run lint` - Run ESLint
+- `npm run lint:fix` - Fix ESLint issues
+
+### Project Structure
+
+```
+src/
+├── config/          # Configuration files
+├── middleware/      # Express middleware
+├── services/        # Business logic services
+├── websocket/       # WebSocket manager and handlers
+└── index.ts         # Main application entry point
+```
+
+## Deployment
+
+### Production Build
 
 ```bash
-npm test
+npm run build
+npm start
 ```
 
-## Linting
+### Environment Variables
 
-Check code quality:
+Ensure all required environment variables are set in production.
 
-```bash
-npm run lint
-```
+### Health Checks
 
-Fix issues:
+The service provides health check endpoints for monitoring:
 
-```bash
-npm run lint:fix
-```
+- `GET /health` - Basic health status
+- `GET /debug/waiting-room` - Matchmaking status
+- `GET /debug/websocket-stats` - Connection statistics
+
+## Security
+
+- **Authentication**: All WebSocket connections require valid JWT tokens
+- **Rate Limiting**: Configurable rate limiting on HTTP endpoints
+- **CORS**: Proper CORS configuration for cross-origin requests
+- **Security Headers**: Helmet.js for security headers
+- **Input Validation**: Proper message validation and sanitization
+
+## Monitoring
+
+### Logs
+
+The service provides comprehensive logging:
+
+- Connection events
+- Message routing
+- Error tracking
+- Performance metrics
+
+### Debug Endpoints
+
+Use the debug endpoints to monitor service health:
+
+- `/debug/waiting-room` - Check waiting room status
+- `/debug/websocket-stats` - Monitor WebSocket connections
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.

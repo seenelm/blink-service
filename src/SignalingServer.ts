@@ -19,7 +19,10 @@ export class SignalingServer {
   private users: User[] = [];
 
   constructor(server: any) {
-    this.wss = new WebSocketServer({ server });
+    this.wss = new WebSocketServer({ 
+      server,
+      path: "/signaling" 
+    });
     this.wss.on("connection", this.handleConnection.bind(this));
   }
 

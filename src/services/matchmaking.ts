@@ -92,6 +92,13 @@ export class MatchmakingService {
     };
   }
 
+  async getAllWaitingUsers(): Promise<WaitingUser[]> {
+    console.log("📋 Getting all waiting users");
+    const users = Array.from(this.waitingUsers.values());
+    console.log(`📊 Total waiting users: ${users.length}`);
+    return users;
+  }
+
   async getWaitingRoomStats(): Promise<{ count: number }> {
     const count = this.waitingUsers.size;
     console.log(`📊 Waiting room stats: ${count} users`);

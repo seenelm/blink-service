@@ -159,7 +159,11 @@ export class CallService {
     }
   }
 
-  private getCallId(user1Id: string, user2Id: string): string {
+  /**
+   * Get a unique call ID for a pair of users
+   * This ensures the same call ID is generated regardless of the order of user IDs
+   */
+  public getCallId(user1Id: string, user2Id: string): string {
     // Create a consistent call ID regardless of user order
     const sortedIds = [user1Id, user2Id].sort();
     return `${sortedIds[0]}-${sortedIds[1]}`;
